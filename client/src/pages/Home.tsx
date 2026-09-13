@@ -6,7 +6,7 @@ const INITIAL_STATUS: WorldStatus = {
   season: "冬",
   week: 5,
   day: "SAT",
-  speed: 2.4,
+  speed: 1.2,
   marker: "春节",
 };
 
@@ -190,7 +190,7 @@ export default function Home() {
   const [entered, setEntered] = useState(false);
   const [sound, setSound] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [speed, setSpeed] = useState(2.4);
+  const [speed, setSpeed] = useState(1.2);
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState<WorldStatus>(INITIAL_STATUS);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -211,7 +211,7 @@ export default function Home() {
   const seekTimeline = useCallback((nextWeek: number) => {
     setSeekWeek(nextWeek);
     setSeekToken((value) => value + 1);
-    setSpeed((value) => Math.max(value, 3.6));
+    setSpeed((value) => Math.max(value, 1.8));
     setPaused(false);
   }, []);
 
@@ -278,7 +278,7 @@ export default function Home() {
             type="button"
             aria-label="恢复正常速度"
             onClick={() => {
-              setSpeed(2.4);
+              setSpeed(1.2);
               setPaused(false);
             }}
           >
