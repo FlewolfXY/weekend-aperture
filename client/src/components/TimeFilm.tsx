@@ -675,11 +675,12 @@ export default function TimeFilm({
       ctx.drawImage(world, 0, 0, width, height);
       ctx.restore();
 
-      const filmTop = height * 0.105;
-      const filmHeight = height * 0.79;
-      const innerTop = filmTop + Math.max(62, height * 0.105);
-      const innerHeight = filmHeight - Math.max(124, height * 0.21);
-      const frameWidth = width / 6.08;
+      const compact = width < 700;
+      const filmTop = height * (compact ? 0.12 : 0.105);
+      const filmHeight = height * (compact ? 0.68 : 0.79);
+      const innerTop = filmTop + Math.max(compact ? 48 : 62, height * (compact ? 0.075 : 0.105));
+      const innerHeight = filmHeight - Math.max(compact ? 102 : 124, height * (compact ? 0.15 : 0.21));
+      const frameWidth = width / (compact ? 3.15 : 6.08);
       const globalDay = week * 7;
       const dayFloor = Math.floor(globalDay);
       const dayFraction = globalDay - dayFloor;

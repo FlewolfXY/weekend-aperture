@@ -73,6 +73,7 @@
 .art-shell {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   min-height: 560px;
   overflow: hidden;
   background: #020304;
@@ -588,10 +589,6 @@
   transform: scale(0.94);
 }
 
-.portrait-note {
-  display: none;
-}
-
 @keyframes grain-shift {
   0% { transform: translate3d(-2%, 1%, 0); }
   25% { transform: translate3d(1%, -2%, 0); }
@@ -616,25 +613,119 @@
   .side-rail { right: 14px; }
   .time-code { min-width: 185px; }
   .instruction { display: none; }
+  .year-orbit-wrap { width: min(650px, 76vw); }
   .info-panel { width: min(480px, 82vw); padding-inline: 38px; }
 }
 
 @media (orientation: portrait) and (max-width: 700px) {
-  .portrait-note {
-    position: absolute;
-    z-index: 20;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 28px;
-    background: rgba(2, 4, 6, 0.84);
-    color: rgba(229, 238, 235, 0.74);
-    font: 400 11px/1.6 "IBM Plex Mono", monospace;
+  .art-shell {
+    min-height: 100svh;
+  }
+
+  .hud-top {
+    padding: max(13px, env(safe-area-inset-top)) 14px 0;
+  }
+
+  .identity-block {
+    gap: 8px;
+  }
+
+  .identity-block .micro-label {
+    display: none;
+  }
+
+  .identity-block h1 {
+    font-size: 16px;
+    line-height: 0.9;
+  }
+
+  .time-code {
+    min-width: 142px;
+    padding: 7px 8px;
+  }
+
+  .time-code-main {
+    grid-template-columns: 22px 1fr auto;
+    gap: 7px;
+    font-size: 9px;
+  }
+
+  .season-glyph {
+    font-size: 14px;
+  }
+
+  .time-code-sub {
+    gap: 7px;
+    font-size: 6px;
     letter-spacing: 0.08em;
-    text-align: center;
-    backdrop-filter: blur(18px);
+  }
+
+  .side-rail {
+    top: 51%;
+    right: 9px;
+    gap: 6px;
+  }
+
+  .rail-button {
+    width: 31px;
+    height: 31px;
+    background: rgba(4, 7, 9, 0.66);
+  }
+
+  .rail-rule {
+    height: 20px;
+  }
+
+  .hud-bottom {
+    padding: 0 14px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .year-orbit-wrap {
+    width: calc(100vw - 28px);
+  }
+
+  .orbit-caption {
+    gap: 8px;
+    font-size: 6px;
+    letter-spacing: 0.1em;
+  }
+
+  .orbit-caption b {
+    letter-spacing: 0.08em;
+  }
+
+  .year-orbit {
+    height: 72px;
+  }
+
+  .moon-row {
+    font-size: 8px;
+  }
+
+  .solar-cursor {
+    width: 18px;
+    height: 18px;
+  }
+
+  .solar-cursor::before { width: 24px; }
+  .solar-cursor::after { height: 24px; }
+
+  .focus-gate {
+    bottom: 17.5%;
+    max-width: calc(100vw - 48px);
+  }
+
+  .focus-copy small {
+    font-size: 7px;
+  }
+
+  .info-panel {
+    width: 100%;
+    padding: max(58px, calc(env(safe-area-inset-top) + 44px)) 28px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .info-panel h2 {
+    font-size: clamp(29px, 9vw, 40px);
   }
 }
 

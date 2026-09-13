@@ -339,10 +339,6 @@ export default function Home() {
           </div>
         )}
 
-        <div className="portrait-note">
-          <RotateCcw size={16} />
-          <span>请旋转设备，以横屏观看这件作品</span>
-        </div>
       </section>
     </main>
   );
