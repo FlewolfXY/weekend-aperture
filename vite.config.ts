@@ -203,9 +203,12 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
-
+const isGitHubPages = process.env.GITHUB_ACTIONS === "true";
+const plugins = isGitHubPages
+  ? [react(), tailwindcss(), jsxLocPlugin()]
+  : [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
 export default defineConfig({
+  base: isGitHubPages ? "/weekend-aperture/" : "/",
   plugins,
   resolve: {
     alias: {
