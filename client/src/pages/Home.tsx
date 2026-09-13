@@ -6,7 +6,7 @@ const INITIAL_STATUS: WorldStatus = {
   season: "冬",
   week: 5,
   day: "SAT",
-  speed: 1,
+  speed: 2.4,
   marker: "春节",
 };
 
@@ -112,14 +112,90 @@ function useGeneratedSound(enabled: boolean, status: WorldStatus) {
   }, [status.day]);
 }
 
+const MOON_PHASES = ["●", "◔", "◑", "◕", "○", "◕", "◑", "◔", "●", "◔", "◑", "◕", "○"];
+
+function YearOrbit({ week, onSeek }: { week: number; onSeek: (week: number) => void }) {
+  const orbitRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const progress = Math.max(0, Math.min(1, (week - 1) / 51));
+
+  const seekFromPointer = (clientX: number) => {
+    const rect = orbitRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(0, Math.min(51.999, ((clientX - rect.left) / rect.width) * 52));
+    onSeek(next);
+  };
+
+  return (
+    <div className="year-orbit-wrap">
+      <div className="orbit-caption">
+        <span>LUNAR / SOLAR YEAR</span>
+        <b>拖动时间轨道</b>
+        <span>52 WEEKS</span>
+      </div>
+      <div
+        ref={orbitRef}
+        className="year-orbit"
+        role="slider"
+        tabIndex={0}
+        aria-label="年度时间轴"
+        aria-valuemin={1}
+        aria-valuemax={52}
+        aria-valuenow={week}
+        onPointerDown={(event) => {
+          draggingRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          seekFromPointer(event.clientX);
+        }}
+        onPointerMove={(event) => {
+          if (draggingRef.current) seekFromPointer(event.clientX);
+        }}
+        onPointerUp={(event) => {
+          draggingRef.current = false;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          draggingRef.current = false;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") onSeek(Math.max(0, week - 2));
+          if (event.key === "ArrowRight") onSeek(Math.min(51.999, week));
+        }}
+      >
+        <svg className="orbit-path" viewBox="0 0 1000 72" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 8 57 Q 500 -14 992 57" />
+          <path className="orbit-progress" pathLength="1" d="M 8 57 Q 500 -14 992 57" style={{ strokeDasharray: `${progress} 1` }} />
+        </svg>
+        <div className="moon-row" aria-hidden="true">
+          {MOON_PHASES.map((phase, index) => (
+            <span key={`${phase}-${index}`} className={index / (MOON_PHASES.length - 1) <= progress ? "passed" : ""}>{phase}</span>
+          ))}
+        </div>
+        <span className="solar-cursor" style={{ left: `${0.8 + progress * 98.4}%`, top: `${57 - Math.sin(progress * Math.PI) * 48}%` }} aria-hidden="true">
+          <i />
+        </span>
+        <div className="season-marks" aria-hidden="true">
+          <span style={{ left: "1%" }}>冬</span>
+          <span style={{ left: "18%" }}>春</span>
+          <span style={{ left: "43%" }}>夏</span>
+          <span style={{ left: "69%" }}>秋</span>
+          <span style={{ left: "93%" }}>冬</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [entered, setEntered] = useState(false);
   const [sound, setSound] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(2.4);
   const [paused, setPaused] = useState(false);
   const [status, setStatus] = useState<WorldStatus>(INITIAL_STATUS);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [seekWeek, setSeekWeek] = useState<number | null>(null);
+  const [seekToken, setSeekToken] = useState(0);
 
   useGeneratedSound(sound, status);
 
@@ -132,6 +208,12 @@ export default function Home() {
   }, []);
 
   const updateStatus = useCallback((next: WorldStatus) => setStatus(next), []);
+  const seekTimeline = useCallback((nextWeek: number) => {
+    setSeekWeek(nextWeek);
+    setSeekToken((value) => value + 1);
+    setSpeed((value) => Math.max(value, 3.6));
+    setPaused(false);
+  }, []);
 
   const enter = () => {
     setEntered(true);
@@ -145,6 +227,8 @@ export default function Home() {
           speed={speed}
           paused={paused}
           reducedMotion={reducedMotion}
+          seekWeek={seekWeek}
+          seekToken={seekToken}
           onSpeedChange={setSpeed}
           onPauseChange={setPaused}
           onStatus={updateStatus}
@@ -194,7 +278,7 @@ export default function Home() {
             type="button"
             aria-label="恢复正常速度"
             onClick={() => {
-              setSpeed(1);
+              setSpeed(2.4);
               setPaused(false);
             }}
           >
@@ -218,13 +302,9 @@ export default function Home() {
             <i />
             <span>拖拽时间</span>
             <i />
-            <span>移动寻找漏光</span>
+            <span>移动对焦透景</span>
           </div>
-          <div className="year-index">
-            <span>YEAR LOOP</span>
-            <div className="year-track"><b style={{ width: `${(status.week / 52) * 100}%` }} /></div>
-            <span>52 WEEKS</span>
-          </div>
+          <YearOrbit week={status.week} onSeek={seekTimeline} />
         </footer>
 
         {!entered && (
@@ -253,7 +333,8 @@ export default function Home() {
             <dl>
               <div><dt>滚轮</dt><dd>改变时间流速</dd></div>
               <div><dt>拖拽</dt><dd>刹停并翻动胶卷</dd></div>
-              <div><dt>移动</dt><dd>在工作日寻找不稳定的漏光</dd></div>
+              <div><dt>移动</dt><dd>穿过灰暗工位，对焦背后的世界</dd></div>
+              <div><dt>轨道</dt><dd>拖动月相与太阳，快速前往一年中的任意时刻</dd></div>
             </dl>
           </div>
         )}

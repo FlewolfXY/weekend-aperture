@@ -12,6 +12,8 @@ type TimeFilmProps = {
   speed: number;
   paused: boolean;
   reducedMotion: boolean;
+  seekWeek: number | null;
+  seekToken: number;
   onSpeedChange: (value: number) => void;
   onPauseChange: (value: boolean) => void;
   onStatus: (status: WorldStatus) => void;
@@ -430,6 +432,102 @@ function drawWorld(
   ctx.restore();
 }
 
+function drawWorkstation(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  t: number,
+  day: number,
+) {
+  ctx.save();
+  roundedPath(ctx, x, y, width, height, 6);
+  ctx.clip();
+
+  const room = ctx.createLinearGradient(x, y, x + width, y + height);
+  room.addColorStop(0, day === 4 ? "rgba(47, 38, 38, .94)" : "rgba(17, 24, 28, .96)");
+  room.addColorStop(0.58, "rgba(8, 12, 15, .98)");
+  room.addColorStop(1, "rgba(29, 33, 34, .94)");
+  ctx.fillStyle = room;
+  ctx.fillRect(x, y, width, height);
+
+  const fluorescent = ctx.createLinearGradient(x, y, x, y + height * 0.3);
+  fluorescent.addColorStop(0, "rgba(204, 224, 218, .14)");
+  fluorescent.addColorStop(1, "rgba(155, 185, 180, 0)");
+  ctx.fillStyle = fluorescent;
+  ctx.fillRect(x + width * 0.12, y, width * 0.76, height * 0.28);
+  ctx.fillStyle = "rgba(226, 237, 233, .28)";
+  ctx.fillRect(x + width * 0.2, y + height * 0.055, width * 0.58, 2);
+
+  const monitorX = x + width * 0.13;
+  const monitorY = y + height * 0.22;
+  const monitorW = width * 0.74;
+  const monitorH = height * 0.35;
+  ctx.fillStyle = "rgba(2, 5, 7, .98)";
+  ctx.fillRect(monitorX - 3, monitorY - 3, monitorW + 6, monitorH + 6);
+  const monitor = ctx.createLinearGradient(monitorX, monitorY, monitorX + monitorW, monitorY + monitorH);
+  monitor.addColorStop(0, "rgba(33, 53, 58, .76)");
+  monitor.addColorStop(0.45, "rgba(19, 35, 40, .84)");
+  monitor.addColorStop(1, day === 4 ? "rgba(75, 48, 43, .6)" : "rgba(27, 44, 47, .7)");
+  ctx.fillStyle = monitor;
+  ctx.fillRect(monitorX, monitorY, monitorW, monitorH);
+
+  ctx.fillStyle = "rgba(154, 193, 187, .2)";
+  for (let i = 0; i < 9; i += 1) {
+    const lineW = monitorW * (0.18 + mod(i * 0.37 + day * 0.11, 1) * 0.63);
+    ctx.fillRect(monitorX + monitorW * 0.1, monitorY + monitorH * (0.13 + i * 0.075), lineW, 1);
+  }
+  const cursor = mod(t * (9 + day * 1.3), monitorW * 0.68);
+  ctx.fillStyle = day === 4 ? "rgba(255, 148, 96, .34)" : "rgba(171, 224, 215, .38)";
+  ctx.fillRect(monitorX + monitorW * 0.1 + cursor, monitorY + monitorH * 0.85, 1, monitorH * 0.075);
+
+  ctx.fillStyle = "rgba(5, 8, 10, .96)";
+  ctx.fillRect(x, y + height * 0.69, width, height * 0.31);
+  ctx.fillStyle = "rgba(123, 139, 137, .16)";
+  ctx.fillRect(x, y + height * 0.69, width, 2);
+  ctx.fillStyle = "rgba(25, 31, 33, .98)";
+  ctx.fillRect(x + width * 0.29, y + height * 0.59, width * 0.42, height * 0.035);
+  ctx.fillRect(x + width * 0.485, y + height * 0.56, width * 0.03, height * 0.13);
+
+  ctx.strokeStyle = "rgba(156, 177, 173, .2)";
+  ctx.lineWidth = 0.7;
+  for (let i = 0; i < 6; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(x + width * (0.18 + i * 0.11), y + height * 0.75);
+    ctx.lineTo(x + width * (0.27 + i * 0.08), y + height * 0.79);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(187, 207, 202, .12)";
+  ctx.beginPath();
+  ctx.moveTo(x + width * 0.82, y + height * 0.58);
+  ctx.bezierCurveTo(
+    x + width * 0.91,
+    y + height * 0.7,
+    x + width * 0.75,
+    y + height * 0.82,
+    x + width * 0.9,
+    y + height,
+  );
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(12, 16, 18, .9)";
+  ctx.beginPath();
+  ctx.roundRect(x + width * 0.08, y + height * 0.73, width * 0.13, height * 0.13, 3);
+  ctx.fill();
+  ctx.strokeStyle = day === 0 ? "rgba(113, 140, 137, .18)" : "rgba(180, 204, 199, .2)";
+  ctx.stroke();
+
+  ctx.globalCompositeOperation = "screen";
+  ctx.fillStyle = "rgba(116, 150, 146, .026)";
+  for (let row = 0; row < 12; row += 1) {
+    const scanY = y + mod(row * 47 + t * (8 + day), height);
+    ctx.fillRect(x, scanY, width, day === 2 ? 3 : 1);
+  }
+  ctx.restore();
+}
+
 function drawOpticalWindow(
   ctx: CanvasRenderingContext2D,
   source: HTMLCanvasElement,
@@ -440,13 +538,14 @@ function drawOpticalWindow(
   pointer: { x: number; y: number },
   t: number,
   intensity = 1,
+  inverted = false,
 ) {
   ctx.save();
   roundedPath(ctx, x, y, width, height, 6);
   ctx.clip();
   ctx.translate(x + width / 2, y + height / 2);
   const breathe = 1.02 + Math.sin(t * 0.9) * 0.006;
-  ctx.scale(-breathe, -breathe);
+  ctx.scale(inverted ? -breathe : breathe, inverted ? -breathe : breathe);
   const ox = (pointer.x - 0.5) * source.width * 0.035;
   const oy = (pointer.y - 0.5) * source.height * 0.03;
   ctx.filter = `saturate(${1.22 + intensity * 0.45}) contrast(1.08) brightness(${0.9 + intensity * 0.2})`;
@@ -471,6 +570,8 @@ export default function TimeFilm({
   speed,
   paused,
   reducedMotion,
+  seekWeek,
+  seekToken,
   onSpeedChange,
   onPauseChange,
   onStatus,
@@ -483,6 +584,7 @@ export default function TimeFilm({
   const dragVelocityRef = useRef(0);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
+  const seekRef = useRef<number | null>(seekWeek);
   const statusRef = useRef(0);
 
   useEffect(() => {
@@ -492,6 +594,10 @@ export default function TimeFilm({
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+
+  useEffect(() => {
+    seekRef.current = seekWeek;
+  }, [seekWeek, seekToken]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -536,8 +642,16 @@ export default function TimeFilm({
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const resistance = timeResistance(timelineRef.current);
-      const baseWeeksPerSecond = reducedMotion ? 0.018 : 0.12;
-      if (!pausedRef.current && !draggingRef.current) {
+      const baseWeeksPerSecond = reducedMotion ? 0.025 : 0.2;
+      if (seekRef.current !== null) {
+        const delta = mod(seekRef.current - timelineRef.current + 26, 52) - 26;
+        if (Math.abs(delta) < 0.012) {
+          timelineRef.current = seekRef.current;
+          seekRef.current = null;
+        } else {
+          timelineRef.current = mod(timelineRef.current + delta * Math.min(1, dt * 11), 52);
+        }
+      } else if (!pausedRef.current && !draggingRef.current) {
         timelineRef.current = mod(
           timelineRef.current + dt * baseWeeksPerSecond * speedRef.current * resistance + dragVelocityRef.current * dt,
           52,
@@ -598,6 +712,7 @@ export default function TimeFilm({
           pointerRef.current,
           t + cell.frameWeek * 0.13,
           cell.dayOfWeek === 5 ? 1 : 0.88,
+          cell.dayOfWeek === 6 && cell.frameWeek % 17 === 0,
         );
       });
 
@@ -605,20 +720,25 @@ export default function TimeFilm({
         (cell) => pointerRef.current.x * width >= cell.x && pointerRef.current.x * width < cell.x + frameWidth,
       );
       const leakPulse = 0.5 + 0.5 * Math.sin(t * 0.7 + week * 1.77);
-      if (hoveredFrame && !hoveredFrame.weekend && (hoveredFrame.dayOfWeek === 2 || leakPulse > 0.76)) {
+      if (hoveredFrame && !hoveredFrame.weekend) {
         const cx = pointerRef.current.x * width;
         const cy = clamp(pointerRef.current.y * height, innerTop + 30, innerTop + innerHeight - 30);
-        const radius = 8 + leakPulse * 20;
+        const radius = 30 + leakPulse * 21;
         ctx.save();
+        const inset = frameWidth * 0.055;
+        roundedPath(ctx, hoveredFrame.x + inset, innerTop, frameWidth - inset * 2, innerHeight, 6);
+        ctx.clip();
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.clip();
-        ctx.filter = "saturate(1.5) contrast(1.1)";
+        ctx.filter = "grayscale(.5) saturate(.48) contrast(1.08) brightness(.82) blur(.25px)";
+        ctx.globalAlpha = 0.9;
         ctx.drawImage(world, 0, 0, width, height);
         ctx.restore();
         ctx.save();
         const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 2.5);
-        glow.addColorStop(0, "rgba(255, 211, 121, .48)");
+        glow.addColorStop(0, "rgba(193, 219, 212, .22)");
+        glow.addColorStop(0.5, "rgba(165, 194, 189, .08)");
         glow.addColorStop(1, "rgba(255, 100, 60, 0)");
         ctx.fillStyle = glow;
         ctx.fillRect(cx - radius * 3, cy - radius * 3, radius * 6, radius * 6);
@@ -650,17 +770,6 @@ export default function TimeFilm({
         roundedPath(filmCtx, x, filmTop + filmHeight - 41, 18, 24, 5);
         filmCtx.fill();
       }
-      if (hoveredFrame && !hoveredFrame.weekend && (hoveredFrame.dayOfWeek === 2 || leakPulse > 0.76)) {
-        filmCtx.beginPath();
-        filmCtx.arc(
-          pointerRef.current.x * width,
-          clamp(pointerRef.current.y * height, innerTop + 30, innerTop + innerHeight - 30),
-          8 + leakPulse * 20,
-          0,
-          Math.PI * 2,
-        );
-        filmCtx.fill();
-      }
       filmCtx.globalCompositeOperation = "source-over";
 
       visibleFrames.forEach((cell) => {
@@ -684,6 +793,15 @@ export default function TimeFilm({
           filmCtx.fillStyle = weekdayShade;
           roundedPath(filmCtx, cell.x + inset, innerTop, frameWidth - inset * 2, innerHeight, 6);
           filmCtx.fill();
+          drawWorkstation(
+            filmCtx,
+            cell.x + inset,
+            innerTop,
+            frameWidth - inset * 2,
+            innerHeight,
+            t + cell.frameWeek * 0.17,
+            cell.dayOfWeek,
+          );
           filmCtx.save();
           roundedPath(filmCtx, cell.x + inset, innerTop, frameWidth - inset * 2, innerHeight, 6);
           filmCtx.clip();
@@ -709,6 +827,34 @@ export default function TimeFilm({
         filmCtx.fillStyle = "rgba(168, 187, 187, .28)";
         filmCtx.fillText(`W${String(cell.frameWeek + 1).padStart(2, "0")} · ${String(cell.dayOfWeek + 1).padStart(2, "0")}`, cell.x + inset + 9, innerTop + innerHeight + 28);
       });
+
+      filmCtx.save();
+      filmCtx.globalCompositeOperation = "destination-out";
+      filmCtx.globalAlpha = 0.09;
+      visibleFrames.forEach((cell) => {
+        if (cell.weekend) return;
+        const inset = frameWidth * 0.055;
+        roundedPath(filmCtx, cell.x + inset, innerTop, frameWidth - inset * 2, innerHeight, 6);
+        filmCtx.fill();
+      });
+      filmCtx.restore();
+
+      if (hoveredFrame && !hoveredFrame.weekend) {
+        const cx = pointerRef.current.x * width;
+        const cy = clamp(pointerRef.current.y * height, innerTop + 30, innerTop + innerHeight - 30);
+        const radius = 30 + leakPulse * 21;
+        filmCtx.save();
+        filmCtx.globalCompositeOperation = "destination-out";
+        const aperture = filmCtx.createRadialGradient(cx, cy, radius * 0.34, cx, cy, radius * 1.22);
+        aperture.addColorStop(0, "rgba(0, 0, 0, .98)");
+        aperture.addColorStop(0.56, "rgba(0, 0, 0, .82)");
+        aperture.addColorStop(1, "rgba(0, 0, 0, 0)");
+        filmCtx.fillStyle = aperture;
+        filmCtx.beginPath();
+        filmCtx.arc(cx, cy, radius * 1.24, 0, Math.PI * 2);
+        filmCtx.fill();
+        filmCtx.restore();
+      }
 
       const oil = filmCtx.createLinearGradient(0, filmTop, width, filmTop + filmHeight);
       oil.addColorStop(0, "rgba(87, 255, 218, 0)");
