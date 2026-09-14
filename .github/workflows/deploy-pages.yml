@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check types and artwork invariants
+        run: pnpm check && pnpm exec vitest run
+
       - name: Build static site
         run: pnpm build:pages
 
