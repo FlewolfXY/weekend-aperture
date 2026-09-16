@@ -8,6 +8,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
+import { useGeneratedSound } from "@/lib/aperture-audio";
 import TimeFilm, { type WorldStatus } from "@/components/TimeFilm";
 
 const INITIAL_STATUS: WorldStatus = {
@@ -17,154 +18,6 @@ const INITIAL_STATUS: WorldStatus = {
   speed: 1.2,
   marker: "春节",
 };
-
-function useGeneratedSound(enabled: boolean, status: WorldStatus) {
-  const audioRef = useRef<{
-    context: AudioContext;
-    master: GainNode;
-    world: GainNode;
-    mechanical: GainNode;
-    filter: BiquadFilterNode;
-    airFilter: BiquadFilterNode;
-    airGain: GainNode;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!enabled) {
-      if (audioRef.current) {
-        const { context, master } = audioRef.current;
-        master.gain.cancelScheduledValues(context.currentTime);
-        master.gain.setTargetAtTime(0, context.currentTime, 0.08);
-        window.setTimeout(() => context.close(), 260);
-        audioRef.current = null;
-      }
-      return;
-    }
-
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = new AudioContextClass();
-    void context.resume().catch(() => {});
-    const master = context.createGain();
-    const compressor = context.createDynamicsCompressor();
-    const world = context.createGain();
-    const mechanical = context.createGain();
-    const filter = context.createBiquadFilter();
-    master.gain.value = 0.0001;
-    world.gain.value = 0.3;
-    mechanical.gain.value = 0.34;
-    filter.type = "lowpass";
-    filter.frequency.value = 580;
-    filter.Q.value = 1.2;
-
-    master.connect(compressor).connect(context.destination);
-    world.connect(filter).connect(master);
-    mechanical.connect(master);
-
-    const drone = context.createOscillator();
-    const droneGain = context.createGain();
-    drone.type = "sine";
-    drone.frequency.value = 54;
-    droneGain.gain.value = 0.055;
-    drone.connect(droneGain).connect(world);
-    drone.start();
-
-    const harmonic = context.createOscillator();
-    const harmonicGain = context.createGain();
-    harmonic.type = "triangle";
-    harmonic.frequency.value = 108.4;
-    harmonicGain.gain.value = 0.018;
-    harmonic.connect(harmonicGain).connect(world);
-    harmonic.start();
-
-    const buffer = context.createBuffer(
-      1,
-      context.sampleRate * 3,
-      context.sampleRate
-    );
-    const channel = buffer.getChannelData(0);
-    for (let i = 0; i < channel.length; i += 1) {
-      const fade = Math.sin((i / channel.length) * Math.PI);
-      channel[i] = (Math.random() * 2 - 1) * fade;
-    }
-    const noise = context.createBufferSource();
-    const noiseFilter = context.createBiquadFilter();
-    const noiseGain = context.createGain();
-    noise.buffer = buffer;
-    noise.loop = true;
-    noiseFilter.type = "bandpass";
-    noiseFilter.frequency.value = 1240;
-    noiseFilter.Q.value = 0.8;
-    noiseGain.gain.value = 0.014;
-    noise.connect(noiseFilter).connect(noiseGain).connect(mechanical);
-    noise.start();
-
-    const tick = context.createOscillator();
-    const tickGain = context.createGain();
-    tick.type = "square";
-    tick.frequency.value = 29;
-    tickGain.gain.value = 0.012;
-    tick.connect(tickGain).connect(mechanical);
-    tick.start();
-
-    // Air and water live behind the film's low-pass filter, separate from the motor.
-    const air = context.createBufferSource();
-    const airFilter = context.createBiquadFilter();
-    const airGain = context.createGain();
-    air.buffer = buffer;
-    air.loop = true;
-    air.playbackRate.value = 0.73;
-    airFilter.type = "bandpass";
-    airFilter.frequency.value = 700;
-    airFilter.Q.value = 0.42;
-    airGain.gain.value = 0.02;
-    air.connect(airFilter).connect(airGain).connect(world);
-    air.start();
-    const breath = context.createOscillator();
-    const breathGain = context.createGain();
-    breath.frequency.value = 0.13;
-    breathGain.gain.value = 0.006;
-    breath.connect(breathGain).connect(airGain.gain);
-    breath.start();
-
-    master.gain.setTargetAtTime(0.62, context.currentTime, 0.32);
-    audioRef.current = {
-      context,
-      master,
-      world,
-      mechanical,
-      filter,
-      airFilter,
-      airGain,
-    };
-
-    return () => {
-      master.gain.setTargetAtTime(0, context.currentTime, 0.06);
-      window.setTimeout(() => context.close(), 180);
-      audioRef.current = null;
-    };
-  }, [enabled]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const weekend =
-      status.immersed || status.day === "SAT" || status.day === "SUN";
-    const now = audio.context.currentTime;
-    audio.filter.frequency.setTargetAtTime(weekend ? 3400 : 470, now, 0.22);
-    audio.world.gain.setTargetAtTime(weekend ? 0.64 : 0.18, now, 0.25);
-    audio.airFilter.frequency.setTargetAtTime(
-      status.rain ? 1900 : status.shot === "tide" ? 420 : 850,
-      now,
-      1
-    );
-    audio.airGain.gain.setTargetAtTime(status.rain ? 0.043 : 0.021, now, 1);
-    audio.mechanical.gain.setTargetAtTime(weekend ? 0.2 : 0.43, now, 0.2);
-  }, [status.day, status.immersed, status.rain, status.shot, enabled]);
-}
 
 const MOON_PHASES = [
   "●",
@@ -305,7 +158,12 @@ export default function Home() {
   const [seekToken, setSeekToken] = useState(0);
   const [returnToken, setReturnToken] = useState(0);
 
-  useGeneratedSound(sound, status);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useGeneratedSound(sound, status, paused);
+  useEffect(() => {
+    if (infoOpen) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [infoOpen]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -325,13 +183,13 @@ export default function Home() {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setInfoOpen(false);
-        setReturnToken(value => value + 1);
+        if (infoOpen) setInfoOpen(false);
+        else setReturnToken(value => value + 1);
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [infoOpen]);
 
   const enter = () => {
     setEntered(true);
@@ -341,7 +199,7 @@ export default function Home() {
   return (
     <main className="art-shell">
       <section
-        className={`art-stage${status.immersed ? " is-immersed" : ""}`}
+        className={`art-stage${status.immersed ? " is-immersed" : ""}${entered ? " is-focused" : ""}`}
         aria-label="Weekend Aperture 互动艺术作品"
       >
         <TimeFilm
@@ -351,6 +209,7 @@ export default function Home() {
           seekWeek={seekWeek}
           seekToken={seekToken}
           returnToken={returnToken}
+          blocked={infoOpen}
           onSpeedChange={setSpeed}
           onPauseChange={setPaused}
           onStatus={updateStatus}
@@ -385,7 +244,9 @@ export default function Home() {
             </div>
             <div className="time-code-sub">
               <span>{status.marker ?? "ORDINARY WEEK"}</span>
-              <span>{status.speed.toFixed(2)}× FLOW</span>
+              <span>
+                {paused ? "TIME HELD" : `${status.speed.toFixed(2)}× FLOW`}
+              </span>
             </div>
           </div>
         </header>
@@ -436,7 +297,7 @@ export default function Home() {
             <i />
             <span>拖拽时间</span>
             <i />
-            <span>停留显影 · 点击周末走进去</span>
+            <span>移近显影 · 按住停留 · 点击周末进入</span>
           </div>
           <YearOrbit week={status.week} onSeek={seekTimeline} />
         </footer>
@@ -474,7 +335,9 @@ export default function Home() {
         )}
 
         {infoOpen && (
-          <div
+          <dialog
+            ref={dialogRef}
+            onCancel={() => setInfoOpen(false)}
             className="info-panel"
             role="dialog"
             aria-modal="true"
@@ -496,10 +359,10 @@ export default function Home() {
               只是感知偶尔恢复。
             </h2>
             <p>
-              五个工作日把世界压进失焦、拖影与错帧。到了周末，胶片上的小孔才短暂显影：有时是燃烧般饱和的远方，有时只是阴雨卧室里一盏微小的灯。
+              同一个世界，被五天的雾暂时藏起。雨珠仍在汇合，叶片翻过来，列车经过水面。周末只是让这些细小的事，重新被看见。
             </p>
             <p>
-              一年由五十二个星期构成。普通时间快速流过；换季、春节、清明、中秋与冬至会让机器迟疑。冬日从窗边开始，春夏逐渐走远，秋天望向山海，然后回到室内。
+              一年由五十二个星期构成。普通时间快速流过；换季、春节、清明、中秋与冬至会让机器迟疑。冬日从窗边开始，春夏逐渐走远，秋天越过窗沿望向岸线，然后回到室内。这里的节日与月相是艺术性的时间标记。
             </p>
             <dl>
               <div>
@@ -512,7 +375,7 @@ export default function Home() {
               </div>
               <div>
                 <dt>停留</dt>
-                <dd>在工作日寻找漏光；在周末等待视野打开</dd>
+                <dd>在工作日寻找漏光；移近周末会减速，按住或点击可以进入</dd>
               </div>
               <div>
                 <dt>点击周末</dt>
@@ -537,7 +400,7 @@ export default function Home() {
                 onChange={event => setSpeed(Number(event.target.value))}
               />
             </label>
-          </div>
+          </dialog>
         )}
       </section>
     </main>

@@ -15,13 +15,23 @@ import {
 import {
   filmGeometry,
   openingCamera,
+  responsiveCamera,
   shotFor,
   sourceCrop,
   weekdayLeak,
   type Shot,
 } from "@/lib/aperture-scenes";
 
+import {
+  advanceTime,
+  canOpenAutomatically,
+  portalAnchor,
+  velocityFromDrag,
+  weekendPace,
+} from "@/lib/aperture-time";
+
 export type WorldStatus = {
+  phase?: number;
   season: string;
   week: number;
   day: string;
@@ -39,6 +49,7 @@ type TimeFilmProps = {
   seekWeek: number | null;
   seekToken: number;
   returnToken: number;
+  blocked?: boolean;
   onSpeedChange: (value: number) => void;
   onPauseChange: (value: boolean) => void;
   onStatus: (status: WorldStatus) => void;
@@ -52,6 +63,8 @@ type Cell = {
 };
 type Portal = {
   shot: Shot;
+  day: number;
+  fadeReturn?: boolean;
   week: number;
   rect: { x: number; y: number; w: number; h: number };
   progress: number;
@@ -77,14 +90,14 @@ function paintWindow(
   ctx.clip();
   ctx.translate(x + w / 2, y + h / 2);
   if (shot.inverted) ctx.rotate(Math.PI * (1 - smooth(opening / 0.65)));
-  const camera = openingCamera(shot, opening);
+  const camera = responsiveCamera(openingCamera(shot, opening), w / h);
   camera.x += (pointer.x - 0.5) * 0.014 + Math.sin(t * 0.13) * 0.003;
   camera.y += (pointer.y - 0.5) * 0.009;
   const crop = sourceCrop(source.width, source.height, w, h, camera);
   ctx.globalAlpha = intensity;
   ctx.filter = shot.rain
-    ? "saturate(.66) contrast(1.1) brightness(1.18)"
-    : "saturate(1.42) contrast(1.05) brightness(1.16)";
+    ? "saturate(.76) contrast(1.06) brightness(1.10)"
+    : "saturate(1.25) contrast(1.08) brightness(1.13)";
   // A real source rectangle, with the camera's aspect ratio. Never squeeze a world into a frame.
   ctx.drawImage(
     source,
@@ -124,139 +137,89 @@ function paintWindow(
   ctx.fillRect(-1, -1, 2, 2);
   ctx.restore();
 }
-function drawWorkstation(
+function paintFog(
+  ctx: CanvasRenderingContext2D,
+  current: HTMLCanvasElement,
+  history: HTMLCanvasElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  shot: Shot,
+  day: number,
+  t: number
+) {
+  ctx.save();
+  roundedPath(ctx, x, y, w, h, 6);
+  ctx.clip();
+  const camera = responsiveCamera(shot, w / h),
+    crop = sourceCrop(current.width, current.height, w, h, camera);
+  const draw = (source: HTMLCanvasElement, dx = 0, dy = 0) =>
+    ctx.drawImage(
+      source,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      x + dx,
+      y + dy,
+      w,
+      h
+    );
+  ctx.globalAlpha = day === 0 ? 0.28 : 0.36;
+  draw(day === 2 ? history : current);
+  if (day === 1) {
+    ctx.globalAlpha = 0.1;
+    for (let i = 1; i < 5; i++) draw(history, 0, i * 9);
+  }
+  if (day === 3) {
+    ctx.globalAlpha = 0.21;
+    draw(history, 8 + Math.sin(t * 0.6) * 3, 0);
+  }
+  ctx.globalAlpha = 1;
+  const milk = ctx.createLinearGradient(x, y, x + w, y + h);
+  milk.addColorStop(0, "rgba(158,176,179,.065)");
+  milk.addColorStop(0.48, "rgba(20,31,39,.34)");
+  milk.addColorStop(1, "rgba(105,117,128,.07)");
+  ctx.fillStyle = milk;
+  ctx.fillRect(x, y, w, h);
+  if (day === 2) {
+    ctx.globalAlpha = 0.22;
+    for (let i = 0; i < 4; i++) {
+      const sy = mod(i * 71 + Math.floor(t * 2) * 17, h - 12);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y + sy, w, 8 + i * 4);
+      ctx.clip();
+      draw(current, (i % 2 ? 1 : -1) * 6);
+      ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 18; i++) {
+    const sx = x + mod(i * 37.37, w);
+    lineFog(ctx, sx, y, sx + Math.sin(i) * 4, y + h, "rgba(204,215,213,.022)");
+  }
+  // Bare traces of imposed time, never a replacement room behind every frame.
+  ctx.fillStyle = "rgba(151,174,178,.10)";
+  ctx.fillRect(x + w * 0.12, y + h * 0.2, w * 0.43, 1);
+  ctx.fillRect(x + w * 0.12, y + h * 0.2 + 6, w * 0.24, 1);
+  ctx.restore();
+}
+function lineFog(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  width: number,
-  height: number,
-  t: number,
-  day: number
+  x2: number,
+  y2: number,
+  color: string
 ) {
-  ctx.save();
-  roundedPath(ctx, x, y, width, height, 6);
-  ctx.clip();
-
-  const room = ctx.createLinearGradient(x, y, x + width, y + height);
-  room.addColorStop(
-    0,
-    day === 4 ? "rgba(47, 38, 38, .94)" : "rgba(17, 24, 28, .96)"
-  );
-  room.addColorStop(0.58, "rgba(8, 12, 15, .98)");
-  room.addColorStop(1, "rgba(29, 33, 34, .94)");
-  ctx.fillStyle = room;
-  ctx.fillRect(x, y, width, height);
-
-  const fluorescent = ctx.createLinearGradient(x, y, x, y + height * 0.3);
-  fluorescent.addColorStop(0, "rgba(204, 224, 218, .14)");
-  fluorescent.addColorStop(1, "rgba(155, 185, 180, 0)");
-  ctx.fillStyle = fluorescent;
-  ctx.fillRect(x + width * 0.12, y, width * 0.76, height * 0.28);
-  ctx.fillStyle = "rgba(226, 237, 233, .28)";
-  ctx.fillRect(x + width * 0.2, y + height * 0.055, width * 0.58, 2);
-
-  const monitorX = x + width * 0.13;
-  const monitorY = y + height * 0.22;
-  const monitorW = width * 0.74;
-  const monitorH = height * 0.35;
-  ctx.fillStyle = "rgba(2, 5, 7, .98)";
-  ctx.fillRect(monitorX - 3, monitorY - 3, monitorW + 6, monitorH + 6);
-  const monitor = ctx.createLinearGradient(
-    monitorX,
-    monitorY,
-    monitorX + monitorW,
-    monitorY + monitorH
-  );
-  monitor.addColorStop(0, "rgba(33, 53, 58, .76)");
-  monitor.addColorStop(0.45, "rgba(19, 35, 40, .84)");
-  monitor.addColorStop(
-    1,
-    day === 4 ? "rgba(75, 48, 43, .6)" : "rgba(27, 44, 47, .7)"
-  );
-  ctx.fillStyle = monitor;
-  ctx.fillRect(monitorX, monitorY, monitorW, monitorH);
-
-  ctx.fillStyle = "rgba(154, 193, 187, .2)";
-  for (let i = 0; i < 9; i += 1) {
-    const lineW = monitorW * (0.18 + mod(i * 0.37 + day * 0.11, 1) * 0.63);
-    ctx.fillRect(
-      monitorX + monitorW * 0.1,
-      monitorY + monitorH * (0.13 + i * 0.075),
-      lineW,
-      1
-    );
-  }
-  const cursor = mod(t * (9 + day * 1.3), monitorW * 0.68);
-  ctx.fillStyle =
-    day === 4 ? "rgba(255, 148, 96, .34)" : "rgba(171, 224, 215, .38)";
-  ctx.fillRect(
-    monitorX + monitorW * 0.1 + cursor,
-    monitorY + monitorH * 0.85,
-    1,
-    monitorH * 0.075
-  );
-
-  ctx.fillStyle = "rgba(5, 8, 10, .96)";
-  ctx.fillRect(x, y + height * 0.69, width, height * 0.31);
-  ctx.fillStyle = "rgba(123, 139, 137, .16)";
-  ctx.fillRect(x, y + height * 0.69, width, 2);
-  ctx.fillStyle = "rgba(25, 31, 33, .98)";
-  ctx.fillRect(
-    x + width * 0.29,
-    y + height * 0.59,
-    width * 0.42,
-    height * 0.035
-  );
-  ctx.fillRect(
-    x + width * 0.485,
-    y + height * 0.56,
-    width * 0.03,
-    height * 0.13
-  );
-
-  ctx.strokeStyle = "rgba(156, 177, 173, .2)";
-  ctx.lineWidth = 0.7;
-  for (let i = 0; i < 6; i += 1) {
-    ctx.beginPath();
-    ctx.moveTo(x + width * (0.18 + i * 0.11), y + height * 0.75);
-    ctx.lineTo(x + width * (0.27 + i * 0.08), y + height * 0.79);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = "rgba(187, 207, 202, .12)";
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 0.6;
   ctx.beginPath();
-  ctx.moveTo(x + width * 0.82, y + height * 0.58);
-  ctx.bezierCurveTo(
-    x + width * 0.91,
-    y + height * 0.7,
-    x + width * 0.75,
-    y + height * 0.82,
-    x + width * 0.9,
-    y + height
-  );
+  ctx.moveTo(x, y);
+  ctx.lineTo(x2, y2);
   ctx.stroke();
-
-  ctx.fillStyle = "rgba(12, 16, 18, .9)";
-  ctx.beginPath();
-  ctx.roundRect(
-    x + width * 0.08,
-    y + height * 0.73,
-    width * 0.13,
-    height * 0.13,
-    3
-  );
-  ctx.fill();
-  ctx.strokeStyle =
-    day === 0 ? "rgba(113, 140, 137, .18)" : "rgba(180, 204, 199, .2)";
-  ctx.stroke();
-
-  ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = "rgba(116, 150, 146, .026)";
-  for (let row = 0; row < 12; row += 1) {
-    const scanY = y + mod(row * 47 + t * (8 + day), height);
-    ctx.fillRect(x, scanY, width, day === 2 ? 3 : 1);
-  }
-  ctx.restore();
 }
 
 export default function TimeFilm({
@@ -266,6 +229,7 @@ export default function TimeFilm({
   seekWeek,
   seekToken,
   returnToken,
+  blocked = false,
   onSpeedChange,
   onPauseChange,
   onStatus,
@@ -277,11 +241,19 @@ export default function TimeFilm({
     down: false,
     startX: 0,
     lastX: 0,
+    lastAt: 0,
     moved: 0,
     at: 0,
     velocity: 0,
     day: -1,
   });
+  const manualAtRef = useRef(0),
+    yearRef = useRef(0),
+    blockedRef = useRef(blocked);
+  useEffect(() => {
+    blockedRef.current = blocked;
+    if (blocked) pointerRef.current.active = false;
+  }, [blocked]);
   const speedRef = useRef(speed),
     pausedRef = useRef(paused);
   const seekRef = useRef<number | null>(seekWeek);
@@ -295,12 +267,16 @@ export default function TimeFilm({
     pausedRef.current = paused;
   }, [paused]);
   useEffect(() => {
+    manualAtRef.current = performance.now();
     seekRef.current = seekWeek;
     dragRef.current.velocity = 0;
     if (portalRef.current) portalRef.current.closing = true;
   }, [seekWeek, seekToken]);
   useEffect(() => {
-    if (portalRef.current) portalRef.current.closing = true;
+    if (portalRef.current) {
+      portalRef.current.closing = true;
+      manualAtRef.current = performance.now();
+    }
   }, [returnToken]);
 
   useEffect(() => {
@@ -311,14 +287,36 @@ export default function TimeFilm({
     const world = document.createElement("canvas"),
       film = document.createElement("canvas"),
       memory = document.createElement("canvas"),
-      backdrop = document.createElement("canvas");
+      backdrop = document.createElement("canvas"),
+      fog = document.createElement("canvas"),
+      history = document.createElement("canvas"),
+      visitWorld = document.createElement("canvas");
     const worldCtx = world.getContext("2d"),
       filmCtx = film.getContext("2d"),
       memoryCtx = memory.getContext("2d"),
-      backCtx = backdrop.getContext("2d");
-    if (!worldCtx || !filmCtx || !memoryCtx || !backCtx) return;
+      backCtx = backdrop.getContext("2d"),
+      fogCtx = fog.getContext("2d"),
+      historyCtx = history.getContext("2d"),
+      visitCtx = visitWorld.getContext("2d");
+    if (
+      !worldCtx ||
+      !filmCtx ||
+      !memoryCtx ||
+      !backCtx ||
+      !fogCtx ||
+      !historyCtx ||
+      !visitCtx
+    )
+      return;
     world.width = 1440;
     world.height = 1080;
+    visitWorld.width = 1440;
+    visitWorld.height = 1080;
+    fog.width = history.width = 360;
+    fog.height = history.height = 270;
+    let historyAt = -100,
+      wet = Number(shotFor(timelineRef.current).rain),
+      hoveredWeekend = false;
     let width = 1,
       height = 1,
       dpr = 1,
@@ -335,6 +333,11 @@ export default function TimeFilm({
       const rect = canvas.getBoundingClientRect();
       width = Math.max(1, rect.width);
       height = Math.max(1, rect.height);
+      const worldWidth = width < 700 ? 1080 : 1440;
+      if (world.width !== worldWidth) {
+        world.width = visitWorld.width = worldWidth;
+        world.height = visitWorld.height = worldWidth * 0.75;
+      }
       dpr = Math.min(window.devicePixelRatio || 1, width < 700 ? 1.5 : 1.75);
       for (const target of [canvas, film, memory]) {
         target.width = Math.round(width * dpr);
@@ -344,13 +347,17 @@ export default function TimeFilm({
       backdrop.height = Math.round(height * 0.6);
       lastWorld = -100;
       // Resizing during a visit returns gracefully; no stale portrait/landscape rectangle.
-      if (portalRef.current) portalRef.current.closing = true;
+      if (portalRef.current) {
+        portalRef.current.closing = true;
+        portalRef.current.fadeReturn = true;
+      }
     };
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
+      manualAtRef.current = performance.now();
       const unit =
         event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? height : 1;
       onSpeedChange(
@@ -370,11 +377,12 @@ export default function TimeFilm({
     document.addEventListener("visibilitychange", visibility);
 
     openRef.current = cell => {
-      if (!cell.weekend || portalRef.current) return;
+      if (!cell.weekend || portalRef.current || blockedRef.current) return;
       const g = filmGeometry(width, height),
         inset = g.frameWidth * 0.055;
       portalRef.current = {
-        shot: shotFor(cell.frameWeek, cell.dayOfWeek),
+        shot: shotFor(cell.frameWeek, cell.dayOfWeek, yearRef.current),
+        day: cell.day,
         week: cell.frameWeek + cell.dayOfWeek / 7,
         rect: {
           x: cell.x + inset,
@@ -393,12 +401,16 @@ export default function TimeFilm({
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw);
       if (!visible) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const dt = Math.max(0, (now - last) / 1000);
       last = now;
       elapsed += dt * (reducedMotion ? 0.12 : 1);
       const t = elapsed,
         drag = dragRef.current;
-      const resistance = timeResistance(timelineRef.current);
+      const resistance =
+        timeResistance(timelineRef.current) * weekendPace(timelineRef.current);
+      const attention =
+        hoveredWeekend && !portalRef.current && !blockedRef.current ? 0.22 : 1;
+      const wasSeeking = seekRef.current !== null;
       if (seekRef.current !== null) {
         const delta = mod(seekRef.current - timelineRef.current + 26, 52) - 26;
         if (Math.abs(delta) < 0.012) {
@@ -410,12 +422,19 @@ export default function TimeFilm({
             52
           );
       } else if (!pausedRef.current && !drag.down) {
+        const previous = timelineRef.current;
         timelineRef.current = mod(
-          timelineRef.current +
-            dt * (reducedMotion ? 0.025 : 0.2) * speedRef.current * resistance +
+          advanceTime(
+            previous,
+            dt,
+            speedRef.current * (reducedMotion ? 0.125 : 1),
+            attention
+          ) +
             drag.velocity * dt,
           52
         );
+        if (previous > 50 && timelineRef.current < 2) yearRef.current++;
+
         drag.velocity *= Math.pow(0.025, dt);
       }
       const week = timelineRef.current,
@@ -461,12 +480,14 @@ export default function TimeFilm({
         dwell = 0;
         dwellDay = hovered?.day ?? -1;
       }
-      const held = drag.down && drag.moved < 8 && now - drag.at > 1100;
+      hoveredWeekend = !!hovered?.weekend;
+      const held = drag.down && drag.moved < 8 && now - drag.at > 650;
       if (
         hovered?.weekend &&
         hovered.day !== lastOpenedDay &&
         !reducedMotion &&
-        (held || dwell > 4.2)
+        !blockedRef.current &&
+        (held || dwell > 1.4)
       )
         openRef.current(hovered);
       const centered = cells.find(
@@ -475,7 +496,14 @@ export default function TimeFilm({
       // Very occasionally an unhurried distant weekend opens on its own.
       if (
         !portalRef.current &&
-        !reducedMotion &&
+        !blockedRef.current &&
+        canOpenAutomatically(
+          pausedRef.current,
+          drag.down,
+          wasSeeking,
+          reducedMotion,
+          (now - manualAtRef.current) / 1000
+        ) &&
         centered?.weekend &&
         centered.day !== lastOpenedDay &&
         shotFor(centered.frameWeek).wide &&
@@ -492,18 +520,57 @@ export default function TimeFilm({
           1
         );
         if (portal.progress >= 1) portal.age += dt;
-        if (portal.age > 11) portal.closing = true;
+        if (portal.age > 14 && !pausedRef.current) portal.closing = true;
+        if (portal.closing && portal.fadeReturn === undefined)
+          portal.fadeReturn =
+            portalAnchor(portal.day, week, width, frameWidth) === null;
         if (portal.closing && portal.progress <= 0) {
           portalRef.current = null;
           dwell = 0;
           lastWorld = -100;
         }
       }
-      const activeShot = portal?.shot ?? shotFor(week);
+      const activeShot = portal?.shot ?? shotFor(week, 5, yearRef.current);
+      wet +=
+        (Number(shotFor(week, 5, yearRef.current).rain) - wet) *
+        (1 - Math.exp(-dt * 0.8));
       const worldWeek = portal ? portal.week : week;
       if (now - lastWorld >= (width < 700 ? 40 : 30)) {
         worldCtx.setTransform(1, 0, 0, 1, 0, 0);
-        drawWorld(worldCtx, 1440, 1080, t, worldWeek, pointer, activeShot.rain);
+        drawWorld(worldCtx, world.width, world.height, t, week, pointer, wet, {
+          year: yearRef.current,
+          focus: shotFor(week).kind,
+        });
+        if (portal) {
+          const outward =
+            portal.shot.kind === "horizon"
+              ? 1
+              : portal.shot.kind === "tide"
+                ? 0.35
+                : portal.shot.kind === "canopy"
+                  ? 0.12
+                  : 0;
+          const travel =
+            outward * smooth(portal.fadeReturn ? 1 : portal.progress);
+          drawWorld(
+            visitCtx,
+            visitWorld.width,
+            visitWorld.height,
+            t,
+            portal.week,
+            pointer,
+            Number(portal.shot.rain),
+            { travel, year: yearRef.current, focus: portal.shot.kind }
+          );
+        }
+        if (now - historyAt > 240) {
+          historyCtx.clearRect(0, 0, 360, 270);
+          historyCtx.drawImage(fog, 0, 0);
+          historyAt = now;
+        }
+        fogCtx.filter = "blur(2.6px) saturate(.14) brightness(.72)";
+        fogCtx.drawImage(world, 0, 0, 360, 270);
+        fogCtx.filter = "none";
         backCtx.save();
         backCtx.clearRect(0, 0, backdrop.width, backdrop.height);
         backCtx.filter = "saturate(.4) brightness(.32) blur(1.5px)";
@@ -539,7 +606,7 @@ export default function TimeFilm({
           innerTop,
           frameWidth - inset * 2,
           innerHeight,
-          shotFor(cell.frameWeek, cell.dayOfWeek),
+          shotFor(cell.frameWeek, cell.dayOfWeek, yearRef.current),
           pointer,
           t
         );
@@ -603,56 +670,18 @@ export default function TimeFilm({
           x = cell.x + inset,
           w = frameWidth - inset * 2;
         if (!cell.weekend) {
-          drawWorkstation(
+          paintFog(
             filmCtx,
+            fog,
+            history,
             x,
             innerTop,
             w,
             innerHeight,
-            t + cell.frameWeek * 0.17,
-            cell.dayOfWeek
+            shotFor(cell.frameWeek, 5, yearRef.current),
+            cell.dayOfWeek,
+            t
           );
-          filmCtx.save();
-          roundedPath(filmCtx, x, innerTop, w, innerHeight, 6);
-          filmCtx.clip();
-          // Different perceptual faults, with weekly variation and no guaranteed happy Friday.
-          const strength =
-            0.04 + mod(Math.sin(cell.day * 13.17) * 2718, 1) * 0.09;
-          if (cell.dayOfWeek === 0) {
-            filmCtx.fillStyle = `rgba(0,2,8,${0.12 + strength})`;
-            filmCtx.fillRect(x, innerTop, w, innerHeight);
-          }
-          if (cell.dayOfWeek === 1) {
-            for (let i = 0; i < 9; i++) {
-              filmCtx.fillStyle = `rgba(119,148,162,${strength * 0.28})`;
-              filmCtx.fillRect(x + (i * w) / 9, innerTop, 1, innerHeight);
-            }
-          }
-          if (cell.dayOfWeek === 2) {
-            for (let i = 0; i < 5; i++) {
-              filmCtx.fillStyle = `rgba(93,143,146,${strength * 0.4})`;
-              filmCtx.fillRect(
-                x + mod(i * 27, w * 0.7),
-                innerTop + mod(i * 83 + t * 3, innerHeight),
-                w * 0.28,
-                8 + i * 3
-              );
-            }
-          }
-          if (cell.dayOfWeek === 3) {
-            filmCtx.strokeStyle = `rgba(197,96,133,${strength})`;
-            filmCtx.strokeRect(
-              x + w * 0.13 + Math.sin(t * 0.6) * 3,
-              innerTop + innerHeight * 0.22,
-              w * 0.74,
-              innerHeight * 0.35
-            );
-          }
-          if (cell.dayOfWeek === 4) {
-            filmCtx.fillStyle = `rgba(230,110,55,${strength * 0.3})`;
-            filmCtx.fillRect(x, innerTop, w, innerHeight);
-          }
-          filmCtx.restore();
 
           const spontaneous = weekdayLeak(cell.day, t);
           const seeking =
@@ -730,7 +759,7 @@ export default function TimeFilm({
           : "rgba(158,181,186,.27)";
         const label =
           cell.weekend && width >= 700
-            ? shotFor(cell.frameWeek, cell.dayOfWeek).title
+            ? shotFor(cell.frameWeek, cell.dayOfWeek, yearRef.current).title
             : `W${String(cell.frameWeek + 1).padStart(2, "0")} · ${String(cell.dayOfWeek + 1).padStart(2, "0")}`;
         filmCtx.fillText(label, x + 8, innerTop + innerHeight + 20, w - 16);
         if (cell.weekend && hovered?.day === cell.day && !portal) {
@@ -742,7 +771,7 @@ export default function TimeFilm({
             innerTop - 16,
             5,
             -Math.PI / 2,
-            -Math.PI / 2 + Math.PI * 2 * clamp(dwell / 4.2, 0.04, 1)
+            -Math.PI / 2 + Math.PI * 2 * clamp(dwell / 1.4, 0.04, 1)
           );
           filmCtx.stroke();
         }
@@ -782,7 +811,23 @@ export default function TimeFilm({
         filmCtx.lineTo(x + 2, filmTop + filmHeight - 4);
         filmCtx.stroke();
       }
-      ctx.drawImage(film, 0, 0, width, height);
+      // Small continuous curvature gives the emulsion tension without bending its subjects.
+      const slice = 24;
+      for (let x = 0; x < width; x += slice) {
+        const span = Math.min(slice, width - x),
+          bend = Math.sin((x / width) * Math.PI) * Math.sin(t * 0.42) * 1.7;
+        ctx.drawImage(
+          film,
+          x * dpr,
+          0,
+          span * dpr,
+          film.height,
+          x,
+          bend,
+          span,
+          height
+        );
+      }
       for (const cell of cells)
         if (cell.weekend) {
           const glow = ctx.createRadialGradient(
@@ -828,17 +873,35 @@ export default function TimeFilm({
         memoryCtx.setTransform(1, 0, 0, 1, 0, 0);
         memoryCtx.clearRect(0, 0, memory.width, memory.height);
         memoryCtx.drawImage(canvas, 0, 0);
-        const p = smooth(portal.progress),
-          r = portal.rect;
-        const x = r.x * (1 - p),
-          y = r.y * (1 - p),
-          w = r.w + (width - r.w) * p,
-          h = r.h + (height - r.h) * p;
+        const p = smooth(portal.progress);
+        const anchor = portalAnchor(portal.day, week, width, frameWidth);
+        if (portal.closing && anchor === null) portal.fadeReturn = true;
+        const fade = portal.closing && portal.fadeReturn;
+        const r = portal.rect;
+        const destinationX =
+          portal.closing && anchor !== null ? anchor + frameWidth * 0.055 : r.x;
+        const x = fade ? 0 : destinationX * (1 - p),
+          y = fade ? 0 : innerTop * (1 - p),
+          w = fade ? width : r.w + (width - r.w) * p,
+          h = fade ? height : innerHeight + (height - innerHeight) * p;
         ctx.save();
+        ctx.globalAlpha = fade ? p : 1;
         ctx.fillStyle = `rgba(1,4,9,${p * 0.7})`;
         ctx.fillRect(0, 0, width, height);
+        paintWindow(
+          ctx,
+          visitWorld,
+          x,
+          y,
+          w,
+          h,
+          portal.shot,
+          pointer,
+          t,
+          1,
+          fade ? 1 : p
+        );
         ctx.restore();
-        paintWindow(ctx, world, x, y, w, h, portal.shot, pointer, t, 1, p);
         if (p > 0.7) {
           // A distant trace of the machine keeps moving while the viewer is outside it.
           ctx.save();
@@ -857,7 +920,7 @@ export default function TimeFilm({
           ctx.restore();
         }
       }
-      canvas.dataset.engine = "living-apertures";
+      canvas.dataset.engine = "living-apertures-v2";
       if (now - statusAt > 180) {
         statusAt = now;
         canvas.dataset.week = week.toFixed(3);
@@ -870,7 +933,10 @@ export default function TimeFilm({
           season: SEASON_CN[seasonState(worldWeek).key],
           week: Math.floor(week) + 1,
           day: DAYS[Math.floor(mod(globalDay, 7))],
-          speed: speedRef.current * resistance,
+          speed: pausedRef.current
+            ? 0
+            : speedRef.current * resistance * attention,
+          phase: t,
           marker: marker?.name,
           immersed: !!portalRef.current,
           caption: portal?.shot.caption,
@@ -910,9 +976,11 @@ export default function TimeFilm({
       drag.velocity = 0;
       return;
     }
-    if (drag.moved < 8 && performance.now() - drag.at < 900) {
-      if (portalRef.current) portalRef.current.closing = true;
-      else {
+    if (drag.moved < 8 && performance.now() - drag.at < 650) {
+      if (portalRef.current) {
+        portalRef.current.closing = true;
+        portalRef.current.fadeReturn = true;
+      } else {
         const cell = cellsRef.current.find(c => c.day === drag.day);
         if (cell) openRef.current(cell);
       }
@@ -937,13 +1005,19 @@ export default function TimeFilm({
               timelineRef.current - dx / frameWidth / 7,
               52
             );
-            drag.velocity = clamp((-dx / frameWidth) * 0.7, -0.7, 0.7);
+            drag.velocity = velocityFromDrag(
+              dx,
+              frameWidth,
+              performance.now() - drag.lastAt
+            );
           }
           drag.lastX = event.clientX;
+          drag.lastAt = performance.now();
         }
       }}
       onPointerDown={event => {
-        if (!event.isPrimary) return;
+        if (!event.isPrimary || blockedRef.current) return;
+        manualAtRef.current = performance.now();
         const rect = updatePointer(event);
         const g = filmGeometry(rect.width, rect.height),
           p = pointerRef.current;
@@ -960,6 +1034,7 @@ export default function TimeFilm({
           down: true,
           startX: event.clientX,
           lastX: event.clientX,
+          lastAt: performance.now(),
           moved: 0,
           at: performance.now(),
           velocity: 0,
@@ -976,6 +1051,8 @@ export default function TimeFilm({
         dragRef.current.down = false;
       }}
       onKeyDown={event => {
+        if (blockedRef.current) return;
+        manualAtRef.current = performance.now();
         if (
           [" ", "ArrowLeft", "ArrowRight", "Enter", "Escape"].includes(
             event.key
@@ -993,7 +1070,13 @@ export default function TimeFilm({
         if (event.key === "Escape" && portalRef.current)
           portalRef.current.closing = true;
         if (event.key === "Enter") {
-          const cell = cellsRef.current.find(c => c.weekend);
+          const cell = cellsRef.current
+            .filter(c => c.weekend)
+            .sort(
+              (a, b) =>
+                Math.abs(a.x - window.innerWidth * 0.5) -
+                Math.abs(b.x - window.innerWidth * 0.5)
+            )[0];
           if (cell) openRef.current(cell);
         }
       }}

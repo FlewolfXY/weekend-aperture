@@ -1020,3 +1020,69 @@
   accent-color: #e5ae6b;
   cursor: ew-resize;
 }
+
+/* Controls stay within reach while the lens is open. */
+.is-immersed .side-rail {
+  opacity: 0.8;
+  visibility: visible;
+  pointer-events: auto;
+}
+.is-immersed .side-rail:hover {
+  opacity: 1;
+}
+.is-focused .time-film-canvas {
+  animation: focus-arrive 1.4s ease-out both;
+}
+@keyframes focus-arrive {
+  0% {
+    filter: blur(3px) brightness(0.8);
+  }
+  45% {
+    filter: blur(0.5px) brightness(1.13);
+  }
+  100% {
+    filter: none;
+  }
+}
+dialog.info-panel {
+  margin: 0 0 0 auto;
+  color: inherit;
+  max-width: 100vw;
+  max-height: 100dvh;
+  border: 0;
+}
+dialog.info-panel::backdrop {
+  background: rgba(0, 5, 10, 0.6);
+  backdrop-filter: blur(6px);
+}
+@media (max-width: 699px) {
+  .time-code-sub,
+  .orbit-caption {
+    font-size: 8px;
+  }
+  .focus-copy small {
+    font-size: 9px;
+  }
+  .rail-button {
+    width: 38px;
+    height: 38px;
+  }
+  .side-rail {
+    right: max(6px, env(safe-area-inset-right));
+  }
+  .is-immersed .side-rail {
+    top: 35%;
+  }
+}
+@media (max-height: 520px) {
+  .side-rail,
+  .is-immersed .side-rail {
+    top: auto;
+    right: max(20px, env(safe-area-inset-right));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-focused .time-film-canvas {
+    animation: none;
+  }
+}
